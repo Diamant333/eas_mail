@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "eas_mail (Windows)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "cwd": "${workspaceFolder}/eas_mail",
+      "deviceId": "windows"
+    },
+    {
+      "name": "eas_mail (Android)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "cwd": "${workspaceFolder}/eas_mail",
+      "deviceId": "android"
+    }
+  ]
+}

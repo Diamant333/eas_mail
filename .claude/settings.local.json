@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze *)",
+      "Bash(flutter build *)",
+      "Bash(flutter pub *)",
+      "Bash(dart pub *)",
+      "Bash(cd \"C:\\\\Users\\\\Мащинов Алексей\\\\Documents\\\\CursorTest\\\\eas_mail\" && grep -r \"appendMessage\\\\|Future.*append\" \".dart_tool\\\\package_config.json\" 2>nul; grep -r \"appendMessage\" \"C:\\\\Users\\\\AF6C~1\\\\AppData\\\\Local\\\\Pub\\\\Cache\\\\hosted\\\\pub.dev\\\\enough_mail-2.1.7\\\\lib\" --include=\"*.dart\" -l 2>&1 | head -5)"
+    ]
+  }
+}
