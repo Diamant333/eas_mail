@@ -43,12 +43,40 @@ class ImapMailBackend implements MailBackend {
       try {
         final config = await em.Discover.discover(account.email);
         if (config != null) {
-          emAccount = em.MailAccount.fromDiscoveredSettings(
+          final discovered = em.MailAccount.fromDiscoveredSettings(
             name: 'EAS Mail',
             email: account.email,
             password: account.password,
             config: config,
             userName: account.loginUsername,
+          );
+
+          // Autodiscover can return an incorrect SocketType for the SMTP port
+          // (e.g. SSL instead of STARTTLS for port 587), causing a 20-second
+          // TCP/SSL handshake timeout.  Rebuild the account using:
+          //   • IMAP settings from autodiscover (host/port/socketType)
+          //   • SMTP host/port from the account's saved settings if available,
+          //     otherwise from autodiscover
+          //   • SMTP SocketType always derived from the port via _socketType()
+          final outHost = account.smtpHost.isNotEmpty
+              ? account.smtpHost
+              : discovered.outgoing.serverConfig.hostname;
+          final outPort = (account.smtpHost.isNotEmpty && account.smtpPort > 0)
+              ? account.smtpPort
+              : discovered.outgoing.serverConfig.port;
+
+          emAccount = em.MailAccount.fromManualSettings(
+            name: 'EAS Mail',
+            email: account.email,
+            userName: account.loginUsername,
+            password: account.password,
+            incomingHost: discovered.incoming.serverConfig.hostname,
+            outgoingHost: outHost,
+            incomingPort: discovered.incoming.serverConfig.port,
+            outgoingPort: outPort,
+            incomingSocketType: discovered.incoming.serverConfig.socketType,
+            outgoingSocketType: _socketType(account.smtpSsl, outPort, incoming: false),
+            loginName: account.loginUsername,
           );
         } else {
           emAccount = _manualAccount(account);

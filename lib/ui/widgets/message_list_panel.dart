@@ -591,12 +591,24 @@ class _LabelDialogContent extends StatefulWidget {
 }
 
 class _LabelDialogContentState extends State<_LabelDialogContent> {
-  late final TextEditingController _nameCtrl;
+  // Initialised in didChangeDependencies (context.read is unsafe in initState
+  // in Flutter 3.32+ — triggers _elements.contains assertion).
+  late TextEditingController _nameCtrl;
   int? _selectedColor;
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
+    // All context-dependent init deferred to didChangeDependencies.
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+
     final session = context.read<MailSession>();
     final meta = session.metaFor(widget.message);
     final presets = session.settings.labelPresets;
@@ -607,7 +619,7 @@ class _LabelDialogContentState extends State<_LabelDialogContent> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
+    if (_initialized) _nameCtrl.dispose();
     super.dispose();
   }
 

@@ -40,7 +40,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _to;
   late final TextEditingController _subject;
-  // Initialised in didChangeDependencies (before first build).
+  // Starts as a basic (empty) controller; replaced with the real content via
+  // addPostFrameCallback once the widget tree is fully mounted.  This avoids
+  // the '_elements.contains(element)' assertion that fires in Flutter 3.32+
+  // when flutter_quill's _QuillEditorState calls setState() during initState()
+  // while processing a complex Document created from forwarded-message HTML.
   late quill.QuillController _quill;
   bool _quillReady = false;
   final List<MimeAttachment> _attachments = [];
@@ -102,8 +106,21 @@ class _ComposeScreenState extends State<ComposeScreen> {
       initHtml = '<p></p>${sig.isNotEmpty ? sig : '<p>С уважением</p>'}';
     }
 
-    // Assign once — no placeholder to dispose.
-    _quill = _htmlToController(initHtml);
+    // Use an empty placeholder for the very first build so that
+    // _QuillEditorState finishes mounting before we hand it a complex
+    // Document.  Replacing the controller after the first frame is safe
+    // and avoids any internal setState() calls during element mounting.
+    _quill = quill.QuillController.basic();
+
+    final html = initHtml; // capture for closure
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final newCtrl = _htmlToController(html);
+      final oldCtrl = _quill;
+      setState(() => _quill = newCtrl);
+      // Dispose the placeholder after the frame that uses the new controller.
+      WidgetsBinding.instance.addPostFrameCallback((_) => oldCtrl.dispose());
+    });
   }
 
   quill.QuillController _htmlToController(String html) {
