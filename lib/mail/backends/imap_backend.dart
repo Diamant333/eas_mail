@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -283,14 +284,96 @@ class ImapMailBackend implements MailBackend {
       }
     }
 
-    // Send via SMTP first — this is the critical step.
-    // appendToSent is done separately so an IMAP APPEND failure
-    // never prevents the message from being delivered.
+    // Use a dedicated SmtpClient so we can:
+    //   • use the current account settings (not the cached autodiscover result)
+    //   • apply a shorter per-attempt timeout (10 s)
+    //   • automatically fall back to the alternative SMTP port on failure
     final mimeMsg = builder.buildMimeMessage();
-    await _client!.sendMessage(mimeMsg, appendToSent: false);
+    await _sendViaDedicatedSmtp(account, mimeMsg);
 
     // Optionally copy to Sent folder; failures are silently ignored.
     _appendToSent(mimeMsg);
+  }
+
+  /// Connects a fresh [SmtpClient] and sends [mimeMsg].
+  ///
+  /// Prefers [account.smtpHost/Port] when set; falls back to the host/port
+  /// resolved during [connect].  Tries the primary port first (10-second
+  /// timeout), then automatically retries on the alternative port
+  /// (587 ↔ 465) if the first attempt times out or the TCP connection fails.
+  Future<void> _sendViaDedicatedSmtp(
+    MailAccount account,
+    em.MimeMessage mimeMsg,
+  ) async {
+    final host = account.smtpHost.isNotEmpty
+        ? account.smtpHost
+        : (resolvedSmtpHost ?? '');
+    if (host.isEmpty) {
+      throw const MailException(
+        'SMTP сервер не настроен. '
+        'Откройте настройки аккаунта и укажите адрес SMTP сервера.',
+      );
+    }
+
+    final basePort = (account.smtpHost.isNotEmpty && account.smtpPort > 0)
+        ? account.smtpPort
+        : (resolvedSmtpPort ?? 587);
+
+    // Build an ordered list of (port, socketType) to try.
+    // Primary: whatever is configured. Fallback: the other common SMTP port.
+    final candidates = <(int, em.SocketType)>[
+      (basePort, _socketType(account.smtpSsl, basePort, incoming: false)),
+    ];
+    final altPort = basePort == 587 ? 465 : (basePort == 465 ? 587 : null);
+    if (altPort != null) {
+      candidates.add(
+        (altPort, _socketType(account.smtpSsl, altPort, incoming: false)),
+      );
+    }
+
+    Object? lastError;
+    for (final (port, socketType) in candidates) {
+      final smtp = em.SmtpClient('easmail.local', isLogEnabled: false);
+      try {
+        final isSecure = socketType == em.SocketType.ssl;
+        await smtp.connectToServer(
+          host,
+          port,
+          isSecure: isSecure,
+          timeout: const Duration(seconds: 10),
+        );
+        await smtp.ehlo();
+        if (!isSecure && smtp.serverInfo.supportsStartTls) {
+          await smtp.startTls();
+          await smtp.ehlo(); // re-issue EHLO after TLS upgrade
+        }
+        await smtp.authenticate(account.loginUsername, account.password);
+        await smtp.sendMessage(mimeMsg);
+        return; // ← sent successfully
+      } on TimeoutException {
+        // Port unreachable — try the next candidate.
+        lastError = MailException(
+          'Нет ответа от SMTP $host:$port (таймаут 10 с)',
+        );
+      } on SocketException catch (e) {
+        // TCP-level failure — try the next candidate.
+        lastError = MailException(
+          'Нет соединения с SMTP $host:$port: ${e.message}',
+        );
+      } on em.SmtpException catch (e) {
+        // Auth / protocol error — don't retry different ports.
+        throw MailException('SMTP ошибка ($host:$port): $e');
+      } catch (e) {
+        // Unknown error — surface immediately.
+        rethrow;
+      } finally {
+        try {
+          await smtp.disconnect();
+        } catch (_) {}
+      }
+    }
+    if (lastError is MailException) throw lastError;
+    throw MailException('Не удалось отправить письмо: $lastError');
   }
 
   void _appendToSent(em.MimeMessage mimeMsg) {
